@@ -3,17 +3,18 @@ import os
 import numpy as np
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 
 # Streamlit 페이지 설정
 st.set_page_config(
-    page_title="퀀트 분석가 | Dual-Track Multi-Factor 데이터 파이프라인",
+    page_title="20년 경력 퀀트 분석가 | Dual-Track Multi-Factor 데이터 파이프라인",
     layout="wide"
 )
 
-# 티커 한글 사명 매핑 딕셔너리 (사용자 요청 종목 전체 반영)
+# 티커 한글 사명 매핑 딕셔너리
 TICKER_NAME_MAP = {
     # 해외 시장
     "NVDA": "엔비디아 (NVDA)",
@@ -31,7 +32,7 @@ TICKER_NAME_MAP = {
     "SNDK": "샌디스크 (SNDK)",
     "AVGO": "브로드컴 (AVGO)",
     "GEV": "GE 버노바 (GEV)",
-    # 국내 시장 (야후파이낸스 코드 매핑)
+    # 국내 시장
     "000660.KS": "SK하이닉스 (000660.KS)",
     "017670.KS": "SK텔레콤 (017670.KS)",
     "005930.KS": "삼성전자 (005930.KS)",
@@ -45,22 +46,52 @@ TICKER_NAME_MAP = {
     "003230.KS": "삼양식품 (003230.KS)"
 }
 
-# 1. 펀더멘털 데이터 수집 (NaN 및 예외 방어 강화)
-def fetch_fundamentals(ticker):
+# 국내 주식 전용 네이버 금융 펀더멘털 수집기
+def fetch_korean_fundamentals(ticker):
+    code = ticker.replace(".KS", "").strip()
     try:
-        tkr = yf.Ticker(ticker)
-        info = tkr.info
-        per = info.get("trailingPE", None)
-        pbr = info.get("priceToBook", None)
-        div = info.get("dividendYield", None)
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=3)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            
+            per_tag = soup.find('em', id='_per')
+            pbr_tag = soup.find('em', id='_pbr')
+            div_tag = soup.find('em', id='_dvr')
+            
+            per = per_tag.text.strip() if per_tag else "N/A"
+            pbr = pbr_tag.text.strip() if pbr_tag else "N/A"
+            div = div_tag.text.strip() if div_tag else "N/A"
+            
+            per_str = f"{per}" if per and per != "" else "데이터 수집 제한(N/A)"
+            pbr_str = f"{pbr}" if pbr and pbr != "" else "데이터 수집 제한(N/A)"
+            div_str = f"{div}%" if div and div != "" and div != "N/A" else "정보 없음"
 
-        per_str = f"{per:.2f}" if isinstance(per, (int, float)) else "데이터 수집 제한(N/A)"
-        pbr_str = f"{pbr:.2f}" if isinstance(pbr, (int, float)) else "데이터 수집 제한(N/A)"
-        div_str = f"{div * 100:.1f}%" if isinstance(div, (int, float)) else "정보 없음"
-
-        return {"ticker": ticker, "PER": per_str, "PBR": pbr_str, "DivYield": div_str}
+            return {"ticker": ticker, "PER": per_str, "PBR": pbr_str, "DivYield": div_str}
     except:
-        return {"ticker": ticker, "PER": "데이터 수집 제한(N/A)", "PBR": "데이터 수집 제한(N/A)", "DivYield": "정보 없음"}
+        pass
+    return {"ticker": ticker, "PER": "데이터 수집 제한(N/A)", "PBR": "데이터 수집 제한(N/A)", "DivYield": "정보 없음"}
+
+# 1. 통합 펀더멘털 데이터 수집 (국내/해외 분기 처리)
+def fetch_fundamentals(ticker):
+    if ".KS" in ticker or (ticker.isdigit() and len(ticker) == 6):
+        return fetch_korean_fundamentals(ticker)
+    else:
+        try:
+            tkr = yf.Ticker(ticker)
+            info = tkr.info
+            per = info.get("trailingPE", None)
+            pbr = info.get("priceToBook", None)
+            div = info.get("dividendYield", None)
+
+            per_str = f"{per:.2f}" if isinstance(per, (int, float)) else "데이터 수집 제한(N/A)"
+            pbr_str = f"{pbr:.2f}" if isinstance(pbr, (int, float)) else "데이터 수집 제한(N/A)"
+            div_str = f"{div * 100:.1f}%" if isinstance(div, (int, float)) else "정보 없음"
+
+            return {"ticker": ticker, "PER": per_str, "PBR": pbr_str, "DivYield": div_str}
+        except:
+            return {"ticker": ticker, "PER": "데이터 수집 제한(N/A)", "PBR": "데이터 수집 제한(N/A)", "DivYield": "정보 없음"}
 
 # 2. 거시 지표 수집기
 def fetch_macro_indicators():
@@ -325,11 +356,9 @@ st.markdown("대시보드에서 요약 표를 확인하고, **AI 분석용 순�
 col1, col2 = st.columns(2)
 
 with col1:
-    # 사용자 요청 해외 디폴트 티커 리스트 반영
     default_overseas = "NVDA, NVDL, GOOGL, META, LEU, MP, SOXX, DRAM, XLK, MRVL, TSM, MU, SNDK, AVGO, GEV"
     ov_box = st.text_input("🌍 해외 시장 티커 (쉼표로 구분)", value=default_overseas)
     
-    # 사용자 요청 국내 디폴트 티커(표준 코드) 리스트 반영
     default_domestic = "000660.KS, 017670.KS, 005930.KS, 032830.KS, 009150.KS, 012330.KS, 005380.KS, 012450.KS, 079550.KS, 042700.KS, 003230.KS"
     dom_box = st.text_input("🇰🇷 국내 시장 티커 (쉼표로 구분)", value=default_domestic)
 
@@ -337,7 +366,7 @@ with col2:
     mode_radio = st.radio("분석 모드 선택", ["단기 모멘텀 트레이딩 진단", "중장기 펀더멘털 진단"])
     period_radio = st.radio("기술적 지표 수집 기간 선택", ["1년 (1y)", "3년 (3y)", "5년 (5y)"], index=1)
 
-# 세션 상태 초기화 (다운로드 버튼 클릭 시 페이지 초기화 방지)
+# 세션 상태 초기화
 if "analyzed" not in st.session_state:
     st.session_state.analyzed = False
     st.session_state.ov_summary_df = None
@@ -346,7 +375,7 @@ if "analyzed" not in st.session_state:
     st.session_state.fn_domestic = None
 
 if st.button("🚀 퀀트 분석 실행 및 데이터 파일 생성", type="primary"):
-    with st.spinner("데이터 수집 및 팩터 연산 중..."):
+    with st.spinner("데이터 수집 및 팩터 연산 중... (국내 주식 네이버 금융 연동 포함)"):
         period_map = {
             "1년 (1y)": "1y",
             "3년 (3y)": "3y",
@@ -374,7 +403,6 @@ if st.button("🚀 퀀트 분석 실행 및 데이터 파일 생성", type="prim
         
         st.session_state.analyzed = True
 
-# 분석 완료 후 세션 상태의 데이터를 기반으로 UI 유지
 if st.session_state.analyzed:
     st.success("✅ 마크다운 데이터 패키지 파일 빌드 완료!")
 
