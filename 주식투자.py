@@ -9,22 +9,40 @@ import streamlit as st
 
 # Streamlit 페이지 설정
 st.set_page_config(
-    page_title="퀀트 분석가 | Dual-Track Multi-Factor 퀀트 데이터 파이프라인",
+    page_title="퀀트 분석가 | Dual-Track Multi-Factor 데이터 파이프라인",
     layout="wide"
 )
 
-# 티커 한글 사명 매핑 딕셔너리
+# 티커 한글 사명 매핑 딕셔너리 (사용자 요청 종목 전체 반영)
 TICKER_NAME_MAP = {
+    # 해외 시장
     "NVDA": "엔비디아 (NVDA)",
+    "NVDL": "엔비디아 2X 롱 (NVDL)",
     "GOOGL": "알파벳 (GOOGL)",
     "META": "메타 플랫폼스 (META)",
-    "XLK": "기술 셀렉터 SPDR 펀드 (XLK)",
+    "LEU": "센트러스 에너지 (LEU)",
+    "MP": "MP 머트리얼즈 (MP)",
+    "SOXX": "필라델피아 반도체 (SOXX)",
+    "DRAM": "메모리반도체 (DRAM)",
+    "XLK": "기술 셀렉터 SPDR (XLK)",
+    "MRVL": "마벨 테크놀로지 (MRVL)",
     "TSM": "타이완 세미컨덕터 (TSM)",
-    "CONY": "YieldMax CONY 옵션 인컴 ETF (CONY)",
-    "MSTY": "YieldMax MSTY 옵션 인컴 ETF (MSTY)",
-    "005930.KS": "삼성전자 (005930.KS)",
+    "MU": "마이크론 테크놀로지 (MU)",
+    "SNDK": "샌디스크 (SNDK)",
+    "AVGO": "브로드컴 (AVGO)",
+    "GEV": "GE 버노바 (GEV)",
+    # 국내 시장 (야후파이낸스 코드 매핑)
     "000660.KS": "SK하이닉스 (000660.KS)",
-    "012330.KS": "현대모비스 (012330.KS)"
+    "017670.KS": "SK텔레콤 (017670.KS)",
+    "005930.KS": "삼성전자 (005930.KS)",
+    "032830.KS": "삼성생명 (032830.KS)",
+    "009150.KS": "삼성전기 (009150.KS)",
+    "012330.KS": "현대모비스 (012330.KS)",
+    "005380.KS": "현대차 (005380.KS)",
+    "012450.KS": "한화에어로스페이스 (012450.KS)",
+    "079550.KS": "LIG D&A (079550.KS)",
+    "042700.KS": "한미반도체 (042700.KS)",
+    "003230.KS": "삼양식품 (003230.KS)"
 }
 
 # 1. 펀더멘털 데이터 수집 (NaN 및 예외 방어 강화)
@@ -307,14 +325,19 @@ st.markdown("대시보드에서 요약 표를 확인하고, **AI 분석용 순�
 col1, col2 = st.columns(2)
 
 with col1:
-    ov_box = st.text_input("🌍 해외 시장 티커 (쉼표로 구분)", value="NVDA, GOOGL, META, CONY, MSTY")
-    dom_box = st.text_input("🇰🇷 국내 시장 티커 (쉼표로 구분)", value="005930.KS, 000660.KS, 012330.KS")
+    # 사용자 요청 해외 디폴트 티커 리스트 반영
+    default_overseas = "NVDA, NVDL, GOOGL, META, LEU, MP, SOXX, DRAM, XLK, MRVL, TSM, MU, SNDK, AVGO, GEV"
+    ov_box = st.text_input("🌍 해외 시장 티커 (쉼표로 구분)", value=default_overseas)
+    
+    # 사용자 요청 국내 디폴트 티커(표준 코드) 리스트 반영
+    default_domestic = "000660.KS, 017670.KS, 005930.KS, 032830.KS, 009150.KS, 012330.KS, 005380.KS, 012450.KS, 079550.KS, 042700.KS, 003230.KS"
+    dom_box = st.text_input("🇰🇷 국내 시장 티커 (쉼표로 구분)", value=default_domestic)
 
 with col2:
     mode_radio = st.radio("분석 모드 선택", ["단기 모멘텀 트레이딩 진단", "중장기 펀더멘털 진단"])
     period_radio = st.radio("기술적 지표 수집 기간 선택", ["1년 (1y)", "3년 (3y)", "5년 (5y)"], index=1)
 
-# 세션 상태 초기화 (데이터 유지용)
+# 세션 상태 초기화 (다운로드 버튼 클릭 시 페이지 초기화 방지)
 if "analyzed" not in st.session_state:
     st.session_state.analyzed = False
     st.session_state.ov_summary_df = None
@@ -351,7 +374,7 @@ if st.button("🚀 퀀트 분석 실행 및 데이터 파일 생성", type="prim
         
         st.session_state.analyzed = True
 
-# 분석이 완료된 상태라면 세션에 저장된 데이터를 화면에 계속 유지
+# 분석 완료 후 세션 상태의 데이터를 기반으로 UI 유지
 if st.session_state.analyzed:
     st.success("✅ 마크다운 데이터 패키지 파일 빌드 완료!")
 
